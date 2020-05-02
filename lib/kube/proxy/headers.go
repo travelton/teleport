@@ -8,18 +8,6 @@ import (
 	"github.com/gravitational/trace"
 )
 
-const (
-	// ImpersonateHeaderPrefix is K8s impersonation prefix for impersonation feature:
-	// https://kubernetes.io/docs/reference/access-authn-authz/authentication/#user-impersonation
-	ImpersonateHeaderPrefix = "Impersonate-"
-	// ImpersonateUserHeader is impersonation header for users
-	ImpersonateUserHeader = "Impersonate-User"
-	// ImpersonateGroupHeader is K8s impersonation header for user
-	ImpersonateGroupHeader = "Impersonate-Group"
-	// ImpersonationRequestDeniedMessage is access denied message for impersonation
-	ImpersonationRequestDeniedMessage = "impersonation request has been denied"
-)
-
 // wrapSetupHeaders returns a new http.RoundTripper which adds impersonation
 // and forwarding headers to requests before passing them to rt.
 func wrapSetupHeaders(rt http.RoundTripper, ctx *authContext, sess *clusterSession) http.RoundTripper {
@@ -68,30 +56,30 @@ func setupImpersonationHeaders(ctx *authContext, headers http.Header) error {
 	var impersonateUser string
 	var impersonateGroups []string
 	for header, values := range headers {
-		if !strings.HasPrefix(header, ImpersonateHeaderPrefix) {
+		if !strings.HasPrefix(header, impersonateHeaderPrefix) {
 			continue
 		}
 		switch header {
-		case ImpersonateUserHeader:
+		case impersonateUserHeader:
 			if impersonateUser != "" {
-				return trace.AccessDenied("%v, user already specified to %q", ImpersonationRequestDeniedMessage, impersonateUser)
+				return trace.AccessDenied("%v, user already specified to %q", impersonationRequestDeniedMessage, impersonateUser)
 			}
 			if len(values) == 0 || len(values) > 1 {
-				return trace.AccessDenied("%v, invalid user header %q", ImpersonationRequestDeniedMessage, values)
+				return trace.AccessDenied("%v, invalid user header %q", impersonationRequestDeniedMessage, values)
 			}
 			impersonateUser = values[0]
 			if _, ok := ctx.kubeUsers[impersonateUser]; !ok {
-				return trace.AccessDenied("%v, user header %q is not allowed in roles", ImpersonationRequestDeniedMessage, impersonateUser)
+				return trace.AccessDenied("%v, user header %q is not allowed in roles", impersonationRequestDeniedMessage, impersonateUser)
 			}
-		case ImpersonateGroupHeader:
+		case impersonateGroupHeader:
 			for _, group := range values {
 				if _, ok := ctx.kubeGroups[group]; !ok {
-					return trace.AccessDenied("%v, group header %q value is not allowed in roles", ImpersonationRequestDeniedMessage, group)
+					return trace.AccessDenied("%v, group header %q value is not allowed in roles", impersonationRequestDeniedMessage, group)
 				}
 				impersonateGroups = append(impersonateGroups, group)
 			}
 		default:
-			return trace.AccessDenied("%v, unsupported impersonation header %q", ImpersonationRequestDeniedMessage, header)
+			return trace.AccessDenied("%v, unsupported impersonation header %q", impersonationRequestDeniedMessage, header)
 		}
 	}
 
@@ -138,13 +126,13 @@ func setupImpersonationHeaders(ctx *authContext, headers http.Header) error {
 	}
 
 	if !ctx.cluster.isRemote {
-		headers.Set(ImpersonateUserHeader, impersonateUser)
+		headers.Set(impersonateUserHeader, impersonateUser)
 
 		// Make sure to overwrite the exiting headers, instead of appending to
 		// them.
-		headers[ImpersonateGroupHeader] = nil
+		headers[impersonateGroupHeader] = nil
 		for _, group := range impersonateGroups {
-			headers.Add(ImpersonateGroupHeader, group)
+			headers.Add(impersonateGroupHeader, group)
 		}
 	}
 	return nil

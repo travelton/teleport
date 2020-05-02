@@ -36,6 +36,7 @@ import (
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/events"
 	"github.com/gravitational/teleport/lib/httplib"
+	kubeutils "github.com/gravitational/teleport/lib/kube/utils"
 	"github.com/gravitational/teleport/lib/reversetunnel"
 	"github.com/gravitational/teleport/lib/services"
 	"github.com/gravitational/teleport/lib/session"
@@ -44,13 +45,14 @@ import (
 	"github.com/gravitational/teleport/lib/utils"
 
 	"github.com/gravitational/oxy/forward"
-	kubeutils "github.com/gravitational/teleport/lib/kube/utils"
 	"github.com/gravitational/trace"
 	"github.com/gravitational/ttlmap"
+
 	"github.com/jonboulle/clockwork"
 	"github.com/julienschmidt/httprouter"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
+	kubecore "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/httpstream"
 	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/client-go/transport/spdy"
@@ -436,11 +438,11 @@ func (f *Forwarder) exec(ctx *authContext, w http.ResponseWriter, req *http.Requ
 		podNamespace:       p.ByName("podNamespace"),
 		podName:            p.ByName("podName"),
 		containerName:      q.Get("container"),
-		cmd:                q["command"],
-		stdin:              utils.AsBool(q.Get("stdin")),
-		stdout:             utils.AsBool(q.Get("stdout")),
-		stderr:             utils.AsBool(q.Get("stderr")),
-		tty:                utils.AsBool(q.Get("tty")),
+		cmd:                q[kubecore.ExecCommandParam],
+		stdin:              utils.AsBool(q.Get(kubecore.ExecStdinParam)),
+		stdout:             utils.AsBool(q.Get(kubecore.ExecStdoutParam)),
+		stderr:             utils.AsBool(q.Get(kubecore.ExecStderrParam)),
+		tty:                utils.AsBool(q.Get(kubecore.ExecTTYParam)),
 		httpRequest:        req,
 		httpResponseWriter: w,
 		context:            req.Context(),
@@ -658,7 +660,7 @@ func (f *Forwarder) catchAll(ctx *authContext, w http.ResponseWriter, req *http.
 }
 
 func (f *Forwarder) getExecutor(ctx *authContext, sess *clusterSession, req *http.Request) (remotecommand.Executor, error) {
-	upgradeRoundTripper := NewSPDYRoundTripperWithDialer(sess.DialWithContext, sess.tlsConfig)
+	upgradeRoundTripper := newSPDYRoundTripper(sess.DialWithContext, sess.tlsConfig)
 	rt, err := f.wrapTransport(upgradeRoundTripper, ctx, sess)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -668,7 +670,7 @@ func (f *Forwarder) getExecutor(ctx *authContext, sess *clusterSession, req *htt
 }
 
 func (f *Forwarder) getDialer(ctx *authContext, sess *clusterSession, req *http.Request) (httpstream.Dialer, error) {
-	upgradeRoundTripper := NewSPDYRoundTripperWithDialer(sess.DialWithContext, sess.tlsConfig)
+	upgradeRoundTripper := newSPDYRoundTripper(sess.DialWithContext, sess.tlsConfig)
 	rt, err := f.wrapTransport(upgradeRoundTripper, ctx, sess)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -890,10 +892,10 @@ func (f *Forwarder) newClusterSession(ctx authContext) (*clusterSession, error) 
 	return sess, nil
 }
 
-// DialFunc is a network dialer function that returns a network connection
-type DialFunc func(string, string) (net.Conn, error)
+// dialFunc is a network dialer function that returns a network connection
+type dialFunc func(string, string) (net.Conn, error)
 
-func (f *Forwarder) newTransport(dial DialFunc, tlsConfig *tls.Config) *http.Transport {
+func (f *Forwarder) newTransport(dial dialFunc, tlsConfig *tls.Config) *http.Transport {
 	return &http.Transport{
 		Dial:            dial,
 		TLSClientConfig: tlsConfig,

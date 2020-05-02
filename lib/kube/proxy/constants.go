@@ -16,62 +16,20 @@ limitations under the License.
 
 package proxy
 
-import (
-	"time"
-)
+import "time"
+
+// TODO(awly): use constants from vendor/k8s.io/api/core/v1/types.go
 
 const (
-	// The SPDY subprotocol "v4.channel.k8s.io" is used for remote command
-	// attachment/execution. It is the 4th version of the subprotocol and
-	// adds support for exit codes.
-	StreamProtocolV4Name = "v4.channel.k8s.io"
+	// impersonateHeaderPrefix is K8s impersonation prefix for impersonation feature:
+	// https://kubernetes.io/docs/reference/access-authn-authz/authentication/#user-impersonation
+	impersonateHeaderPrefix = "Impersonate-"
+	// impersonateUserHeader is impersonation header for users
+	impersonateUserHeader = "Impersonate-User"
+	// impersonateGroupHeader is K8s impersonation header for user
+	impersonateGroupHeader = "Impersonate-Group"
+	// impersonationRequestDeniedMessage is access denied message for impersonation
+	impersonationRequestDeniedMessage = "impersonation request has been denied"
 
-	// DefaultStreamCreationTimeout
-	DefaultStreamCreationTimeout = 30 * time.Second
-
-	IdleTimeout = 15 * time.Minute
-)
-
-// These constants are for remote command execution and port forwarding and are
-// used by both the client side and server side components.
-//
-// This is probably not the ideal place for them, but it didn't seem worth it
-// to create pkg/exec and pkg/portforward just to contain a single file with
-// constants in it.  Suggestions for more appropriate alternatives are
-// definitely welcome!
-const (
-	// Enable stdin for remote command execution
-	ExecStdinParam = "input"
-	// Enable stdout for remote command execution
-	ExecStdoutParam = "output"
-	// Enable stderr for remote command execution
-	ExecStderrParam = "error"
-	// Enable TTY for remote command execution
-	ExecTTYParam = "tty"
-	// Command to run for remote command execution
-	ExecCommandParam = "command"
-
-	// Name of header that specifies stream type
-	StreamType = "streamType"
-	// Value for streamType header for stdin stream
-	StreamTypeStdin = "stdin"
-	// Value for streamType header for stdout stream
-	StreamTypeStdout = "stdout"
-	// Value for streamType header for stderr stream
-	StreamTypeStderr = "stderr"
-	// Value for streamType header for data stream
-	StreamTypeData = "data"
-	// Value for streamType header for error stream
-	StreamTypeError = "error"
-	// Value for streamType header for terminal resize stream
-	StreamTypeResize = "resize"
-
-	// Name of header that specifies the port being forwarded
-	PortHeader = "port"
-	// Name of header that specifies a request ID used to associate the error
-	// and data streams for a single forwarded connection
-	PortForwardRequestIDHeader = "requestID"
-
-	// PortForwardProtocolV1Name is the subprotocol "portforward.k8s.io" is used for port forwarding
-	PortForwardProtocolV1Name = "portforward.k8s.io"
+	idleTimeout = 15 * time.Minute
 )

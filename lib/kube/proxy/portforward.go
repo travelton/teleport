@@ -30,9 +30,13 @@ import (
 	"github.com/gravitational/teleport/lib/events"
 
 	"github.com/gravitational/trace"
+
 	log "github.com/sirupsen/logrus"
+	kubecore "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/httpstream"
 	spdystream "k8s.io/apimachinery/pkg/util/httpstream/spdy"
+	"k8s.io/apimachinery/pkg/util/remotecommand"
+	"k8s.io/client-go/tools/portforward"
 )
 
 // portForwardRequest is a request that specifies port forwarding
@@ -55,12 +59,12 @@ func (p portForwardRequest) String() string {
 type portForwardCallback func(addr string, success bool)
 
 func runPortForwarding(req portForwardRequest) error {
-	_, err := httpstream.Handshake(req.httpRequest, req.httpResponseWriter, []string{PortForwardProtocolV1Name})
+	_, err := httpstream.Handshake(req.httpRequest, req.httpResponseWriter, []string{portforward.PortForwardProtocolV1Name})
 	if err != nil {
 		return trace.Wrap(err)
 	}
 
-	targetConn, _, err := req.targetDialer.Dial(PortForwardProtocolV1Name)
+	targetConn, _, err := req.targetDialer.Dial(portforward.PortForwardProtocolV1Name)
 	if err != nil {
 		return trace.ConnectionProblem(err, "error upgrading connection")
 	}
@@ -84,12 +88,12 @@ func runPortForwarding(req portForwardRequest) error {
 		sourceConn:            conn,
 		streamChan:            streamChan,
 		streamPairs:           make(map[string]*httpStreamPair),
-		streamCreationTimeout: DefaultStreamCreationTimeout,
+		streamCreationTimeout: remotecommand.DefaultStreamCreationTimeout,
 		targetConn:            targetConn,
 	}
 	defer h.Close()
-	h.Debugf("Setting port forwarding streaming connection idle timeout to %v", IdleTimeout)
-	conn.SetIdleTimeout(IdleTimeout)
+	h.Debugf("Setting port forwarding streaming connection idle timeout to %v", idleTimeout)
+	conn.SetIdleTimeout(idleTimeout)
 	h.run()
 	return nil
 }
@@ -101,9 +105,9 @@ func runPortForwarding(req portForwardRequest) error {
 func httpStreamReceived(ctx context.Context, streams chan httpstream.Stream) func(httpstream.Stream, <-chan struct{}) error {
 	return func(stream httpstream.Stream, replySent <-chan struct{}) error {
 		// make sure it has a valid port header
-		portString := stream.Headers().Get(PortHeader)
+		portString := stream.Headers().Get(kubecore.PortHeader)
 		if len(portString) == 0 {
-			return trace.BadParameter("%q header is required", PortHeader)
+			return trace.BadParameter("%q header is required", kubecore.PortHeader)
 		}
 		port, err := strconv.ParseUint(portString, 10, 16)
 		if err != nil {
@@ -114,11 +118,11 @@ func httpStreamReceived(ctx context.Context, streams chan httpstream.Stream) fun
 		}
 
 		// make sure it has a valid stream type header
-		streamType := stream.Headers().Get(StreamType)
+		streamType := stream.Headers().Get(kubecore.StreamType)
 		if len(streamType) == 0 {
-			return trace.BadParameter("%q header is required", StreamType)
+			return trace.BadParameter("%q header is required", kubecore.StreamType)
 		}
-		if streamType != StreamTypeError && streamType != StreamTypeData {
+		if streamType != kubecore.StreamTypeError && streamType != kubecore.StreamTypeData {
 			return trace.BadParameter("invalid stream type %q", streamType)
 		}
 
@@ -155,9 +159,9 @@ func (h *portForwardProxy) Close() error {
 func (h *portForwardProxy) forwardStreamPair(p *httpStreamPair, remotePort int64) error {
 	// create error stream
 	headers := http.Header{}
-	headers.Set(StreamType, StreamTypeError)
-	headers.Set(PortHeader, fmt.Sprintf("%d", remotePort))
-	headers.Set(PortForwardRequestIDHeader, p.requestID)
+	headers.Set(kubecore.StreamType, kubecore.StreamTypeError)
+	headers.Set(kubecore.PortHeader, fmt.Sprintf("%d", remotePort))
+	headers.Set(kubecore.PortForwardRequestIDHeader, p.requestID)
 
 	// read and write from the error stream
 	targetErrorStream, err := h.targetConn.CreateStream(headers)
@@ -185,7 +189,7 @@ func (h *portForwardProxy) forwardStreamPair(p *httpStreamPair, remotePort int64
 	}()
 
 	// create data stream
-	headers.Set(StreamType, StreamTypeData)
+	headers.Set(kubecore.StreamType, kubecore.StreamTypeData)
 	dataStream, err := h.targetConn.CreateStream(headers)
 	if err != nil {
 		return trace.ConnectionProblem(err, "error creating forwarding stream for port -> %d: %v", remotePort, err)
@@ -280,7 +284,7 @@ func (h *portForwardProxy) removeStreamPair(requestID string) {
 
 // requestID returns the request id for stream.
 func (h *portForwardProxy) requestID(stream httpstream.Stream) (string, error) {
-	requestID := stream.Headers().Get(PortForwardRequestIDHeader)
+	requestID := stream.Headers().Get(kubecore.PortForwardRequestIDHeader)
 	if len(requestID) == 0 {
 		return "", trace.BadParameter("port forwarding is not supported")
 	}
@@ -306,7 +310,7 @@ func (h *portForwardProxy) run() {
 				h.Warningf("Failed to parse request id: %v.", err)
 				return
 			}
-			streamType := stream.Headers().Get(StreamType)
+			streamType := stream.Headers().Get(kubecore.StreamType)
 			h.Debugf("Received new stream %v of type %v.", requestID, streamType)
 
 			p, created := h.getStreamPair(requestID)
@@ -329,7 +333,7 @@ func (h *portForwardProxy) portForward(p *httpStreamPair) {
 	defer p.dataStream.Close()
 	defer p.errorStream.Close()
 
-	portString := p.dataStream.Headers().Get(PortHeader)
+	portString := p.dataStream.Headers().Get(kubecore.PortHeader)
 	port, _ := strconv.ParseInt(portString, 10, 32)
 
 	h.Debugf("Forwrarding port %v -> %v.", p.requestID, portString)
@@ -368,13 +372,13 @@ func (p *httpStreamPair) add(stream httpstream.Stream) (bool, error) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
-	switch stream.Headers().Get(StreamType) {
-	case StreamTypeError:
+	switch stream.Headers().Get(kubecore.StreamType) {
+	case kubecore.StreamTypeError:
 		if p.errorStream != nil {
 			return false, trace.BadParameter("error stream already assigned")
 		}
 		p.errorStream = stream
-	case StreamTypeData:
+	case kubecore.StreamTypeData:
 		if p.dataStream != nil {
 			return false, trace.BadParameter("data stream already assigned")
 		}

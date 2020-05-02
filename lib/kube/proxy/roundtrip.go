@@ -40,10 +40,10 @@ import (
 	"k8s.io/apimachinery/third_party/forked/golang/netutil"
 )
 
-// SPDYRoundTripper knows how to upgrade an HTTP request to one that supports
+// spdyRoundTripper knows how to upgrade an HTTP request to one that supports
 // multiplexed streams. After RoundTrip() is invoked, Conn will be set
-// and usable. SPDYRoundTripper implements the UpgradeRoundTripper interface.
-type SPDYRoundTripper struct {
+// and usable. spdyRoundTripper implements the UpgradeRoundTripper interface.
+type spdyRoundTripper struct {
 	//tlsConfig holds the TLS configuration settings to use when connecting
 	//to the remote server.
 	tlsConfig *tls.Config
@@ -52,7 +52,7 @@ type SPDYRoundTripper struct {
 	   must be safe for use by multiple concurrent goroutines. If this is absolutely
 	   necessary, we could keep a map from http.Request to net.Conn. In practice,
 	   a client will create an http.Client, set the transport to a new insteace of
-	   SPDYRoundTripper, and use it a single time, so this hopefully won't be an issue.
+	   spdyRoundTripper, and use it a single time, so this hopefully won't be an issue.
 	*/
 	// conn is the underlying network connection to the remote server.
 	conn net.Conn
@@ -61,14 +61,14 @@ type SPDYRoundTripper struct {
 	dialFunc utils.DialWithContextFunc
 }
 
-var _ utilnet.TLSClientConfigHolder = &SPDYRoundTripper{}
-var _ httpstream.UpgradeRoundTripper = &SPDYRoundTripper{}
-var _ utilnet.Dialer = &SPDYRoundTripper{}
+var _ utilnet.TLSClientConfigHolder = &spdyRoundTripper{}
+var _ httpstream.UpgradeRoundTripper = &spdyRoundTripper{}
+var _ utilnet.Dialer = &spdyRoundTripper{}
 
-// NewSPDYRoundTripperWithDialer creates a new SPDYRoundTripper that will use
+// newSPDYRoundTripper creates a new spdyRoundTripper that will use
 // the specified tlsConfig. This function is mostly meant for unit tests.
-func NewSPDYRoundTripperWithDialer(dial utils.DialWithContextFunc, tlsConfig *tls.Config) *SPDYRoundTripper {
-	return &SPDYRoundTripper{
+func newSPDYRoundTripper(dial utils.DialWithContextFunc, tlsConfig *tls.Config) *spdyRoundTripper {
+	return &spdyRoundTripper{
 		tlsConfig: tlsConfig,
 		dialFunc:  dial,
 	}
@@ -76,12 +76,12 @@ func NewSPDYRoundTripperWithDialer(dial utils.DialWithContextFunc, tlsConfig *tl
 
 // TLSClientConfig implements pkg/util/net.TLSClientConfigHolder for proper TLS checking during
 // proxying with a spdy roundtripper.
-func (s *SPDYRoundTripper) TLSClientConfig() *tls.Config {
+func (s *spdyRoundTripper) TLSClientConfig() *tls.Config {
 	return s.tlsConfig
 }
 
 // Dial implements k8s.io/apimachinery/pkg/util/net.Dialer.
-func (s *SPDYRoundTripper) Dial(req *http.Request) (net.Conn, error) {
+func (s *spdyRoundTripper) Dial(req *http.Request) (net.Conn, error) {
 	dialAddr := netutil.CanonicalAddr(req.URL)
 
 	if req.URL.Scheme == "http" {
@@ -108,9 +108,9 @@ func (s *SPDYRoundTripper) Dial(req *http.Request) (net.Conn, error) {
 }
 
 // RoundTrip executes the Request and upgrades it. After a successful upgrade,
-// clients may call SPDYRoundTripper.Connection() to retrieve the upgraded
+// clients may call spdyRoundTripper.Connection() to retrieve the upgraded
 // connection.
-func (s *SPDYRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+func (s *spdyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	header := utilnet.CloneHeader(req.Header)
 	header.Add(httpstream.HeaderConnection, httpstream.HeaderUpgrade)
 	header.Add(httpstream.HeaderUpgrade, streamspdy.HeaderSpdy31)
@@ -142,7 +142,7 @@ func (s *SPDYRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 // NewConnection validates the upgrade response, creating and returning a new
 // httpstream.Connection if there were no errors.
-func (s *SPDYRoundTripper) NewConnection(resp *http.Response) (httpstream.Connection, error) {
+func (s *spdyRoundTripper) NewConnection(resp *http.Response) (httpstream.Connection, error) {
 	connectionHeader := strings.ToLower(resp.Header.Get(httpstream.HeaderConnection))
 	upgradeHeader := strings.ToLower(resp.Header.Get(httpstream.HeaderUpgrade))
 	if resp.StatusCode != http.StatusSwitchingProtocols ||

@@ -25,7 +25,9 @@ import (
 	"time"
 
 	"github.com/gravitational/trace"
+
 	log "github.com/sirupsen/logrus"
+	kubecore "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/httpstream"
@@ -52,7 +54,7 @@ type remoteCommandRequest struct {
 }
 
 func createRemoteCommandProxy(req remoteCommandRequest) (*remoteCommandProxy, error) {
-	protocol, err := httpstream.Handshake(req.httpRequest, req.httpResponseWriter, []string{StreamProtocolV4Name})
+	protocol, err := httpstream.Handshake(req.httpRequest, req.httpResponseWriter, []string{remotecommandconsts.StreamProtocolV4Name})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
@@ -76,14 +78,14 @@ func createRemoteCommandProxy(req remoteCommandRequest) (*remoteCommandProxy, er
 		return nil, trace.ConnectionProblem(trace.BadParameter("missing connection"), "missing connection")
 	}
 
-	conn.SetIdleTimeout(IdleTimeout)
+	conn.SetIdleTimeout(idleTimeout)
 
 	var handler protocolHandler
 	switch protocol {
 	case "":
 		log.Warningf("Client did not request protocol negotiation.")
 		fallthrough
-	case StreamProtocolV4Name:
+	case remotecommandconsts.StreamProtocolV4Name:
 		log.Infof("Negotiated protocol %v.", protocol)
 		handler = &v4ProtocolHandler{}
 	default:
@@ -105,7 +107,7 @@ func createRemoteCommandProxy(req remoteCommandRequest) (*remoteCommandProxy, er
 		expectedStreams++
 	}
 
-	expired := time.NewTimer(DefaultStreamCreationTimeout)
+	expired := time.NewTimer(remotecommandconsts.DefaultStreamCreationTimeout)
 	defer expired.Stop()
 
 	proxy, err := handler.waitForStreams(req.context, streamCh, expectedStreams, expired.C)
@@ -268,21 +270,21 @@ WaitForStreams:
 	for {
 		select {
 		case stream := <-streams:
-			streamType := stream.Headers().Get(StreamType)
+			streamType := stream.Headers().Get(kubecore.StreamType)
 			switch streamType {
-			case StreamTypeError:
+			case kubecore.StreamTypeError:
 				remoteProxy.writeStatus = v4WriteStatusFunc(stream)
 				go waitStreamReply(stopCtx, stream.replySent, replyChan)
-			case StreamTypeStdin:
+			case kubecore.StreamTypeStdin:
 				remoteProxy.stdinStream = stream
 				go waitStreamReply(stopCtx, stream.replySent, replyChan)
-			case StreamTypeStdout:
+			case kubecore.StreamTypeStdout:
 				remoteProxy.stdoutStream = stream
 				go waitStreamReply(stopCtx, stream.replySent, replyChan)
-			case StreamTypeStderr:
+			case kubecore.StreamTypeStderr:
 				remoteProxy.stderrStream = stream
 				go waitStreamReply(stopCtx, stream.replySent, replyChan)
-			case StreamTypeResize:
+			case kubecore.StreamTypeResize:
 				remoteProxy.resizeStream = stream
 				go waitStreamReply(stopCtx, stream.replySent, replyChan)
 			default:
